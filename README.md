@@ -9,10 +9,12 @@ int_arduino
 int_keithley
 - Initializing a serial connection with Keithley 6487 (picoammeter)
 - In my setup, I used this to bias the SiPM and measure the current of the calibrated photodiode
+- Uses SCPI
 
 int_siglent
-- Initializing a serial connection with Siglent (digital multimeter)
+- Initializing a serial connection with Siglent SDM3045X (digital multimeter)
 - In my setup, I used this to measure the current of the SiPM
+- Uses SCPI
 
 raster_scan
 - This will do a raster scan of the SiPM, taking both current measurements
