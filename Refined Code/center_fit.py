@@ -186,8 +186,8 @@ def analyze_and_plot(x_file, y_file):
         ax.axvline(popt[4], color='gray', linestyle='--', label='Edge 2')
         ax.axvline(centroid, color='orange', linestyle='--', label='Centroid')
 
-        ax.set_title(f'{axis_label} Beam Profile ({"Y" if axis_label=="X" else "X"} ≈ 5 mm)')
-        ax.set_xlabel(f'{axis_label}-position [mm]')
+        ax.set_title(f'{axis_label} Beam Profile (fixed {axis_label.lower()} = 5 mm)')
+        ax.set_xlabel(f'{"Y" if axis_label=="X" else "X"}-position [mm]')
         ax.set_ylabel('SiPM Current [A]')
         ax.grid(True)
         ax.legend()
@@ -214,8 +214,8 @@ def find_center(xcsv, ycsv):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     analyze_and_plot(
-        x_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\x_scan_1751303823.csv",
-        y_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\y_scan_1751303823.csv"
+        x_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\data\x_scan_1752262010.csv",
+        y_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\data\y_scan_1752261490.csv"
     )
     #find_center(        xcsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\x_scan_1751303823.csv",
         #ycsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\y_scan_1751303823.csv"

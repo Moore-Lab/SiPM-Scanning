@@ -13,7 +13,7 @@ import twod_scan
 # --------------------------------------------------------------------
 # FUNCTION: Send move command to Arduino and wait for "OK"
 # --------------------------------------------------------------------
-def move_to(x_mm, y_mm):
+def move_to(x_mm, y_mm, ser):
     """
     Sends a move command in millimeters to the Arduino and waits until movement is complete.
     """
@@ -38,7 +38,7 @@ def move_to(x_mm, y_mm):
 # FUNCTION: Simulate taking a measurement (can be replaced later) --> Changed
 # --------------------------------------------------------------------
 
-def measure(x_mm, y_mm, csv=f"data/center_{int(time.time())}.csv"):
+def measure(x_mm, y_mm, keithley, siglent, csv=f"data/center_{int(time.time())}.csv"):
     # Perform an IV measurement at (x, y) using the siglent.
     print(f"Measuring at ({x_mm}, {y_mm})...")
 
@@ -71,10 +71,10 @@ def measure(x_mm, y_mm, csv=f"data/center_{int(time.time())}.csv"):
 # FUNCTION: Center scan on SiPM
 # --------------------------------------------------------------------
 
-def center_scan(x, y, func, csv=f"data/line_scan_{int(time.time())}.csv"):
+def center_scan(x, y, func, ser, keithley, siglent, csv=f"data/line_scan_{int(time.time())}.csv"):
 
-    move_to(x, y) # Move to this (x, y) position
-    func(x, y, csv)
+    move_to(x, y, ser) # Move to this (x, y) position
+    func(x, y, keithley, siglent, csv)
 
     print("Finished center scan of SiPM.")
 
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         csv=f"data/center_{int(time.time())}.csv"
         #center = twod_scan.center() # Function that will tell me the center of the SiPM
         center = [5, 5]
-        center_scan(center[0], center[1], measure, csv)
+        center_scan(center[0], center[1], measure, ser, keithley, siglent, csv)
         flush()   # Return to home position when done
     except KeyboardInterrupt:
         print("\n Scan aborted by user.")

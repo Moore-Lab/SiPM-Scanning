@@ -23,7 +23,7 @@ logging.basicConfig(
 # --------------------------------------------------------------------
 # FUNCTION: Send move command to Arduino and wait for "OK"
 # --------------------------------------------------------------------
-def move_to(x_mm, y_mm):
+def move_to(x_mm, y_mm, ser):
     """
     Sends a move command in millimeters to the Arduino and waits until movement is complete.
     """
@@ -49,7 +49,7 @@ def move_to(x_mm, y_mm):
 # FUNCTION: Simulate taking a measurement (can be replaced later) --> Changed
 # --------------------------------------------------------------------
 
-def measure(x_mm, y_mm, csv=f"data/center_{int(time.time())}.csv"):
+def measure(x_mm, y_mm, keithley, siglent, csv=f"data/center_{int(time.time())}.csv"):
     # Perform an IV measurement at (x, y) using the siglent.
     print(f"Measuring at ({x_mm}, {y_mm})...")
 
@@ -82,7 +82,7 @@ def measure(x_mm, y_mm, csv=f"data/center_{int(time.time())}.csv"):
 # FUNCTION: Snake-style scan across SiPM
 # --------------------------------------------------------------------
 
-def snake_scan(x1, x2, y1, y2, ds, func, csv=f"data/raster_scan_{timestamp}.csv"):
+def snake_scan(x1, x2, y1, y2, ds, func, ser, keithley, siglent, csv=f"data/raster_scan_{timestamp}.csv"):
 
 
     direction = 1  # Initial direction: left-to-right
@@ -94,8 +94,8 @@ def snake_scan(x1, x2, y1, y2, ds, func, csv=f"data/raster_scan_{timestamp}.csv"
 
         for x_idx in x_range:
             try:
-                move_to(x_idx, y_idx)
-                func(x_idx, y_idx, csv)
+                move_to(x_idx, y_idx, ser)
+                func(x_idx, y_idx, keithley, siglent, csv)
             except Exception as e:
                 print(f"Error at ({x_idx:.1f}, {y_idx:.1f}): {e}")
                 # Write a row of zeros to mark the failure
@@ -109,7 +109,7 @@ def snake_scan(x1, x2, y1, y2, ds, func, csv=f"data/raster_scan_{timestamp}.csv"
 # --------------------------------------------------------------------
 # FUNCTION: Return stage to (0, 0) after scanning
 # --------------------------------------------------------------------
-def flush():
+def flush(ser):
     """
     Sends a 'flush' command to Arduino to return motors to limit switch position.
     """
@@ -138,8 +138,8 @@ if __name__ == "__main__":
         int_keithley.set_voltage(keithley, -27.4)  # Set voltage to -27.9 V
 
         csv=f"data/raster_scan_{int(time.time())}.csv"
-        snake_scan(0, 10, 0, 10, .1, measure, csv)        # Start scanning the full sensor
-        flush()   # Return to home position when done
+        snake_scan(0, 10, 0, 10, .1, measure, ser, keithley, siglent, csv)        # Start scanning the full sensor
+        flush(ser)   # Return to home position when done
     except KeyboardInterrupt:
         print("\n Scan aborted by user.")
     finally:

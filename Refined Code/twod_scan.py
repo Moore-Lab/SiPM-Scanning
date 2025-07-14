@@ -11,7 +11,7 @@ import int_siglent
 # --------------------------------------------------------------------
 # FUNCTION: Send move command to Arduino and wait for "OK"
 # --------------------------------------------------------------------
-def move_to(x_mm, y_mm):
+def move_to(x_mm, y_mm, ser):
     """
     Sends a move command in millimeters to the Arduino and waits until movement is complete.
     """
@@ -36,7 +36,7 @@ def move_to(x_mm, y_mm):
 # FUNCTION: Simulate taking a measurement (can be replaced later) --> Changed
 # --------------------------------------------------------------------
 
-def measure(x_mm, y_mm, csv=f"data/twod_scan_{int(time.time())}.csv"):
+def measure(x_mm, y_mm, keithley, siglent, csv=f"data/twod_scan_{int(time.time())}.csv"):
     # Perform an IV measurement at (x, y) using the siglent.
     print(f"Measuring at ({x_mm}, {y_mm})...")
 
@@ -69,21 +69,21 @@ def measure(x_mm, y_mm, csv=f"data/twod_scan_{int(time.time())}.csv"):
 # FUNCTION: Line scans across SiPM
 # --------------------------------------------------------------------
 
-def xline_scan(x, y1, y2, ds, func, csv=f"data/line_scan_{int(time.time())}.csv"):
+def xline_scan(x, y1, y2, ds, func, ser, keithley, siglent, csv=f"data/line_scan_{int(time.time())}.csv"):
 
     for y_idx in np.append(np.arange(y1, y2, ds), y2):  # Loop through the array with the last value always in (regardless of divisibility)
 
-        move_to(x, y_idx) # Move to this (x, y) position
-        func(x, y_idx, csv)
+        move_to(x, y_idx, ser) # Move to this (x, y) position
+        func(x, y_idx, keithley, siglent, csv)
 
     print("Finished x line scan of SiPM.")
 
-def yline_scan(y, x1, x2, ds, func, csv=f"data/line_scan_{int(time.time())}.csv"):
+def yline_scan(y, x1, x2, ds, func, ser, keithley, siglent, csv=f"data/line_scan_{int(time.time())}.csv"):
 
     for x_idx in np.append(np.arange(x1, x2, ds), x2):  # Loop through the array with the last value always in (regardless of divisibility)
 
-        move_to(x_idx, y) # Move to this (x, y) position
-        func(x_idx, y, csv)
+        move_to(x_idx, y, ser) # Move to this (x, y) position
+        func(x_idx, y, keithley, siglent, csv)
 
     print("Finished y line scan of SiPM.")
 
@@ -120,8 +120,8 @@ if __name__ == "__main__":
 
         xcsv=f"data/x_scan_{int(time.time())}.csv"
         ycsv=f"data/y_scan_{int(time.time())}.csv"
-        xline_scan(7.5, 0, 15, .1, measure, xcsv)
-        yline_scan(7.5, 0, 15, .1, measure, ycsv)
+        xline_scan(5, 0, 10, .1, measure, ser, keithley, siglent, xcsv)
+        yline_scan(5, 0, 10, .1, measure, ser, keithley, siglent, ycsv)
         flush()   # Return to home position when done
     except KeyboardInterrupt:
         print("\n Scan aborted by user.")
