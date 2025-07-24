@@ -44,8 +44,8 @@ def measure(x_mm, y_mm, keithley, siglent, csv=f"data/twod_scan_{int(time.time()
     
     # Should run both instruments in parallel
     with ThreadPoolExecutor() as executor:
-        future_sipm = executor.submit(int_siglent.precise_current, siglent, 5, 0.5)
-        future_pd = executor.submit(int_keithley.measure_current, keithley, 5, 1) #--> until I actually hook up PD
+        future_sipm = executor.submit(int_siglent.precise_current, siglent, 3, 0.5)
+        future_pd = executor.submit(int_keithley.measure_current, keithley, 3, 1) #--> until I actually hook up PD
         sipm_data = future_sipm.result()
         pd_data = future_pd.result() #--> below is just a placeholder for PD data until I hook it up
         #pd_data = [0,0,0,time.time()]
@@ -116,7 +116,7 @@ if __name__ == "__main__":
         keithley = int_keithley.initialize_keithley()
         siglent = int_siglent.initialize_siglent()
 
-        int_keithley.set_voltage(keithley, -27.4)  # Set voltage to -27.9 V
+        #int_keithley.set_voltage(keithley, -27.4)  # Set voltage to -27.9 V
 
         xcsv=f"data/x_scan_{int(time.time())}.csv"
         ycsv=f"data/y_scan_{int(time.time())}.csv"

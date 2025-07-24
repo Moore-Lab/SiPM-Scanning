@@ -7,6 +7,11 @@ def initialize_keithley(resource_name='ASRL4::INSTR'):
     rm = pyvisa.ResourceManager()
     keithley = rm.open_resource(resource_name=resource_name, read_termination='\r', write_termination="\n", timeout=60000)
 
+    # Set voltage source mode
+    keithley.write("*RST")                          # Reset the instrument
+    keithley.write("SYST:ZCH OFF")               # Turn off zero check
+    keithley.write("SENS:FUNC 'CURR'")           # Set to measure current
+    
     return keithley
 
 def test_connection(keithley):
@@ -18,7 +23,7 @@ def test_connection(keithley):
     except Exception as e:
         print("Connection failed:", e)
         return False
-
+'''
 def set_voltage(keithley, voltage=-27.9):
     # Set voltage source mode
     keithley.write("*RST")                          # Reset the instrument
@@ -26,13 +31,13 @@ def set_voltage(keithley, voltage=-27.9):
     keithley.write("SOUR:FUNC VOLT")            # Source voltage
     keithley.write("SOUR:VOLT:MODE FIX")         # Set voltage mode
     keithley.write("SOUR:VOLT:RANG 50")         # Set voltage range
-    keithley.write("SENS:FUNC 'CURR'")           # Set to measure current
     keithley.write("SOUR:VOLT:ILIM 2.5e-3")   # Set current limit to 2.5 mA
     keithley.write(f"SOUR:VOLT {voltage}")              # Set desired negative voltage (e.g., -5 V)
 
     # Enable the output
     keithley.write("SOUR:VOLT:STAT ON")
-
+'''
+    
 def set_current(keithley):
     try:
         keithley.write("SENS:FUNC 'CURR'")

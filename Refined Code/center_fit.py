@@ -201,7 +201,7 @@ def analyze_and_plot(x_file, y_file):
         print(f'  Max Current (offset + amplitude): {(popt[0] + popt[1]):.2e} A')
 
     plt.tight_layout()
-    plt.show()
+    #plt.show()
     return tuple(centroids)  # (centroid_x, centroid_y)
 
 def find_center(xcsv, ycsv):
@@ -214,8 +214,8 @@ def find_center(xcsv, ycsv):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     analyze_and_plot(
-        x_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\data\x_scan_1752262010.csv",
-        y_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\data\y_scan_1752261490.csv"
+        x_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\4.5_cal_xline_scan_1752613149.csv",
+        y_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\4.5_cal_yline_scan_1752613149.csv"
     )
     #find_center(        xcsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\x_scan_1751303823.csv",
         #ycsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\y_scan_1751303823.csv"
