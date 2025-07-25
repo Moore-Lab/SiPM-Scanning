@@ -24,7 +24,7 @@ twod_scan
 - This will do do two line scans along roughly the center of the SiPM
 - This will integrate the gaussian profile of the laser to give you a error function
 
-center_fit
+darroch_error
 - From the csv data obtained in twod_scan, this code with find the exact center of the SiPM
 - It will also give you the error function with the FWHM, which will give you the dimensions of the SiPM
 
