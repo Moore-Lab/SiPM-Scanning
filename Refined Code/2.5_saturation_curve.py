@@ -13,11 +13,9 @@ param = [1]  # Initial guess for the parameters k and reset time
 
 def Nfired_func(n,x_stdv,y_stdv,reset=1):
     # I have to average radii among all the trials
-    #s = 2.3E-3/4
-    k = .2291
+    k = 0.3759
     RC=50E-9
     tau=reset*RC
-    #k = .3745 #--> for 2.5 V overvoltage
     a = (35E-6)**2*tau
     A = (2*np.pi*x_stdv*y_stdv/a)
     return A*(np.euler_gamma+np.log(k*n/A)-special.expi(-k*n/A))
@@ -69,8 +67,8 @@ pd_current = np.array(pd_current) #- .0032E-9  # Subtracting a small value to ac
 sipm_current = np.array(sipm_current) - 1.4335108492e-06  # Subtracting a small value to account for dark current
 
 # I have to consider the crosstalk and afterpulsing of the SiPM
-c = .15
-a = .026
+c = .08
+a = .0075
 '''
 y = np.linspace(0.05,0.15,num=10000)
 ymin = y[np.argmin(np.abs(c - y*np.exp(-y)))]
@@ -91,7 +89,7 @@ filtered_indices = photons >= 1e8
 photons = photons[filtered_indices]
 
 # Convert the SiPM_current to Rate of fired cells (cps)
-gain = 4.4E6  # Gain of the SiPM
+gain = 2.9E6  # Gain of the SiPM
 charge = 1.6E-19  # Charge of an electron in Coulombs
 avalanches = np.array(sipm_current) * 1/(gain * charge)  # Convert from Amps
 avalanches = avalanches[filtered_indices]
@@ -121,7 +119,8 @@ chi2 = chi2_calc(residuals)
 photons_smooth = np.logspace(np.log10(photons.min()), np.log10(photons.max()), 500)
 effective_pde_model = Nfired_func(photons_smooth, x_stdv, y_stdv, *popt) / photons_smooth
 
-figure, axis = plt.subplots(3, 1, figsize=(10, 10))
+'''
+figure, axis = plt.subplots(2, 1, figsize=(10, 11), sharex=True, constrained_layout=True)
 
 # Plot 1: Saturation curve (avalanches vs photons)
 axis[0].errorbar(photons, avalanches, yerr=y_error, fmt='o', label='Data')
@@ -132,6 +131,7 @@ axis[0].set_xscale('log')
 axis[0].set_yscale('log')
 axis[0].set_title('SiPM Saturation Curve')
 axis[0].legend()
+axis[0].grid(True, alpha=0.3)
 
 # Plot 2: Residuals
 axis[1].plot(photons, residuals, marker='o', ls='None', label=f'Residuals (Chi2={chi2:.2f})')
@@ -140,7 +140,22 @@ axis[1].set_xlabel('Rate of photons [cps]')
 axis[1].set_ylabel('Residuals')
 axis[1].set_title('Residuals of SiPM Saturation Curve Fit')
 axis[1].legend()
+axis[1].grid(True, alpha=0.3)
+'''
 
+figure, axis = plt.subplots(1, 1, figsize=(6.2, 4.4))
+axis.errorbar(photons, avalanches, yerr=y_error, fmt='o', ms=4, label='Data')
+axis.plot(photons_smooth, Nfired_func(photons_smooth, x_stdv, y_stdv, *popt), ls='--', lw=1.5, label='Model')
+axis.set_xscale('log')
+axis.set_yscale('log')
+axis.set_xlabel('Rate of photons [cps]', labelpad=2)
+axis.set_ylabel('Rate of fired cells [cps]', labelpad=2)
+axis.set_title('SiPM Saturation Curve', pad=2)
+axis.grid(True, alpha=0.3)
+axis.legend(frameon=False)
+figure.subplots_adjust(left=0.12, right=0.99, bottom=0.14, top=0.95)
+
+'''
 # Plot 3: Effective PDE (avalanches/photons vs photons)
 axis[2].plot(photons, effective_pde_data, marker='o', ls='None', label='Data', markersize=6)
 axis[2].axhline(pde_estimate, color='r', linestyle=':', alpha=0.7, linewidth=2, label=f'PDE estimate: {pde_estimate:.4f}')
@@ -151,8 +166,8 @@ axis[2].set_ylabel('Effective PDE (N_fired / N_photons)')
 axis[2].set_title('Effective PDE vs Photon Rate')
 axis[2].legend()
 axis[2].grid(True, alpha=0.3)
+'''
 
-figure.tight_layout()
 plt.show()
 
 '''

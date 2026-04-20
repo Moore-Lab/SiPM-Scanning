@@ -18,7 +18,9 @@ def joined_erf(x, *p):
 def profile(csv, col):
     csv = np.loadtxt(csv, delimiter=",", skiprows=1)
     pos = csv[:, col]
-    current = -1 * csv[:, 2]
+    current = csv[:, 2]
+    #For some reason I no longer need to multiply by -1 here
+    #    current = -1 * csv[:, 2]
     #current_err = csv[:, 4]
     # Trying a current error of the 600uA of the siglent
     current_err = current * .0025 + .04*10**-6
@@ -289,6 +291,9 @@ def plot(x_pos, x_current, x_current_err, x_pos_line, x_fitted_curve, x_fit_para
     axis[0, 0].set_xlabel("Y Position (mm)")
     axis[0, 0].set_ylabel("Current (A)")
     axis[0, 0].set_title('X Profile (fixed x)')
+    # Plot a horizontal line at the full width half maximum (FWHM) level of the fitted curve
+    fwhm_level = (x_fitted_curve.max() - x_fitted_curve.min()) / 2 + x_fitted_curve.min()
+    axis[0, 0].axhline(fwhm_level, color='black', linestyle='--', label='FWHM Level')
     axis[0, 0].legend()
 
     axis[1, 0].errorbar(x_pos, x_residuals, yerr = np.ones(len(x_pos)), fmt = '.')
@@ -298,6 +303,9 @@ def plot(x_pos, x_current, x_current_err, x_pos_line, x_fitted_curve, x_fit_para
     axis[0, 1].set_xlabel("X Position (mm)")
     axis[0, 1].set_ylabel("Current (A)")
     axis[0, 1].set_title('Y Profile (fixed y)')
+    # Plot a horizontal line at the full width half maximum (FWHM) level of the fitted curve
+    fwhm_level = (y_fitted_curve.max() - y_fitted_curve.min()) / 2 + y_fitted_curve.min()
+    axis[0, 1].axhline(fwhm_level, color='black', linestyle='--', label='FWHM Level')
     axis[0, 1].legend()
 
     axis[1, 1].errorbar(y_pos, y_residuals, yerr = np.ones(len(y_pos)), fmt = '.')
@@ -306,8 +314,8 @@ def plot(x_pos, x_current, x_current_err, x_pos_line, x_fitted_curve, x_fit_para
     plt.show()
 
 if __name__ == "__main__":
-    x_csv = r'C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\first\meas_2.7_27.4_xline_scan_1753113067.csv'
-    y_csv = r'C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\first\meas_2.7_27.4_yline_scan_1753113067.csv'
+    x_csv = r'C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\OVfive\meas_2.5_27.3_xline_scan_1772658121.csv'
+    y_csv = r'C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\OVfive\meas_2.5_27.3_yline_scan_1772658121.csv'
     x_center, x_pos, x_current, x_current_err, x_p0 = profile(x_csv, 1)
     y_center, y_pos, y_current, y_current_err, y_p0 = profile(y_csv, 0)
     x_pos_line, x_fitted_curve, x_fit_param, x_popt, x_residuals = fit(x_pos, x_current, x_current_err, x_p0)
