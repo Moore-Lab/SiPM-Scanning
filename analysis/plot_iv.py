@@ -352,8 +352,8 @@ with h5py.File(DATA_FILE, 'r') as f:
                                     rf"$a={a_fit2:.2f}\pm{a_err2:.2f}$  ($\tau={reset_fit*1e9:.0f}$ ns)"
                                     rf"  PDE$={pde_fit2:.3f}\pm{pde_err2:.3f}$"))
 
-                    ax2ratio.axhline(pde_fit2, color=style['color'], linewidth=1.4, linestyle='-',
-                                     label=f"{style['label']} PDE$_{{\\rm fit}}$ = {pde_fit2:.3f}$\\pm${pde_err2:.3f}")
+                    ax2ratio.plot(n_fine, nf_fine / n_fine, color=style['color'], linewidth=1.4,
+                                 label=rf"{style['label']} model  PDE$_{{fit}}={pde_fit2:.3f}\pm{pde_err2:.3f}$")
 
                     nf_pred = Nfired_func(R_gamma[valid2], sigma_x_m, sigma_y_m, pde_fit2, reset_fit)
                     resid   = (R_obs[valid2] - nf_pred) / R_err[valid2]
