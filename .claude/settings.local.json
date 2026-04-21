@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/control' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/analysis')",
+      "Bash(mv 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/int_arduino.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/int_keithley.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/int_siglent.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/twod_scan.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/raster_scan.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/center_scan.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/fake_2d_scan.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/calibration.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/measurement.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/pd_centering.md' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/control/')",
+      "Bash(mv 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/darroch_error.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/center_fit.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/saturation_curve.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/2.5_saturation_curve.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/4_saturation_curve.py' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/saturation_curve.md' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/analysis/')",
+      "Bash(mv 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/data' 'c:/Users/darro/OneDrive - Yale University/Desktop/Gdpaper/SiPM-Scanning/Refined Code/analysis/')",
+      "Bash(python build_h5.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c ' *)",
+      "Bash(python plot_iv.py)",
+      "Bash(python -c \"import fitz; print\\('pymupdf ok'\\)\")",
+      "Bash(python -c \"import pdfplumber; print\\('pdfplumber ok'\\)\")",
+      "Bash(python -c \"import pdfminer; print\\('pdfminer ok'\\)\")",
+      "Bash(python -c \"import pypdf; print\\('pypdf ok'\\)\")",
+      "Bash(python -c \"import PyPDF2; print\\('PyPDF2 ok'\\)\")",
+      "Bash(python parse_datasheets.py)",
+      "Bash(python fit_scan.py)",
+      "Bash(python analysis/center_fit.py)",
+      "Bash(python analysis/fit_scan.py)"
+    ]
+  }
+}

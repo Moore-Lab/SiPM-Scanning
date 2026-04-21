@@ -1,0 +1,153 @@
+\documentclass[main.tex]{subfiles} % grabs header of main.tex
+\begin{document}
+\doublespacing
+\thispagestyle{empty}
+
+%=================  Theory and Methods  =================
+%Provide a brief overview of SiPM operation and the well-known equation for SiPM saturation from uniform light distributions.
+%Derive your equation for SiPM saturation from non-uniform light distributions, including the special case of a slit distribution and equal-radius 2-D Gaussian beam.
+%Describe your Monte Carlo simulation setup and the parameters used.
+%Discuss the experimental setup and procedures used for measuring SiPM saturation from different light distributions.
+
+This section provides an overview of the theoretical concepts and principles that underlie our investigation of SiPM saturation from non-uniform light distributions. We begin by defining key terms and providing background information, before discussing the theory are our experimental methods. 
+
+For a SiPM with indexed-SPADs, the probability for an avalanche in the $ij$-th SPAD is 
+
+\begin{align}\label{eq:pdp}
+    \rho_{ij} =& 1 - \exp{\left(- \lambda_{ij} \right)}\\
+     =& 1 - \exp{\left(- QE_{ij} \cdot P_{ij} \cdot FF_{ij} \cdot U_{ij}\right)},
+\end{align}
+
+where $\lambda_{ij}$ is the expected number of detections, $QE_{ij}$ is the quantum efficiency, $P_{ij}$ is the avalanche triggering probability, $FF_{ij}$ is the effective geometrical fill-factor, and $U_{ij}$ is the incident number of photons. Therefore the expected number of avalanches from a SiPM with $n_x \times n_y$ SPADs is 
+
+\begin{equation}\label{eq:nf-exact}
+    \langle N \rangle = \sum_{ij}^{n_x n_y} \left(  1 - \exp{\left(  - QE_{ij} \cdot P_{ij} \cdot FF_{ij} \cdot U_{ij}\right)} \right).
+\end{equation}
+
+The PDE is defined as the ratio of the number of avalanches to incident photons, i.e.,
+
+\begin{equation}\label{eq:pde-eff}
+    \text{PDE} = \frac{\langle N \rangle}{\sum_{ij} U_{ij}} = \frac{1}{\sum_{ij} U_{ij}}\sum_{ij}^{n_x n_y} \left(  1 - \exp{\left(  - QE_{ij} \cdot P_{ij} \cdot FF_{ij} \cdot U_{ij}\right)} \right).
+\end{equation}
+
+If the expected number of detections $\lambda_{ij} << 1$, then
+
+\begin{equation}\label{eq:nf-dim}
+    \text{PDE} \approx \frac{1}{\sum_{ij} U_{ij}}\sum_{ij}^{n_x n_y} QE_{ij} \cdot P_{ij} \cdot FF_{ij} \cdot U_{ij},
+\end{equation}
+
+and if $U_{ij} \approx \frac{\sum_{ij} U_{ij}}{n_x n_y}$ $\forall$ \{$i, j$\}  $\epsilon$  \{$n_x, n_y$\}, i.e., the light is uniformly distributed, then
+
+\begin{equation}\label{eq:pde-dim}
+    \text{PDE} \approx \frac{1}{n_x n_y}\sum_{ij}^{n_x n_y} QE_{ij} \cdot P_{ij} \cdot FF_{ij}.
+\end{equation}
+
+Since this equation is the average of the product $QE_{ij} \cdot P_{ij} \cdot FF_{ij}$, if there is low variation in those parameters we get
+
+\begin{equation}\label{eq:pde-intrinsic}
+    \text{PDE} \approx \langle QE \rangle \langle P \rangle \langle FF \rangle,
+\end{equation}
+
+which is to say that for a SiPM with high uniformity that is illuminated by uniformly distributed light, the PDE is the product of the average quantum efficiency, avalanche triggering probability, and the geometric fill factor. Equation \ref{eq:pde-intrinsic} is a definition for the PDE commonly found in the literature. In the general case, both definitions \ref{eq:pde-eff} and \ref{eq:pde-intrinsic} cannot be true, so equation \ref{eq:pde-intrinsic} will be favoured and referred to as the intrinsic PDE, and equation \ref{eq:pde-eff} will be referred to as the effective PDE.
+
+\subsection{Two-dimensional lattice}
+
+\begin{equation}
+    \rho_{ijk} = 1-\exp{\left(-QE_{ij}\cdot P_{ij}\cdot FF_{ij}\cdot U_{ij}\right)},
+\end{equation}
+
+where $QE_{ij}$ is the quantum efficiency, $P_{ij}$ is the avalanche triggering probability, $FF_{ij}$ is the effective geometrical fill-factor, and $U_{ij}$ is the incident number of photons. The expected number of avalanches from a SiPM with $n_x \times n_y$ SPADs is
+
+\begin{equation}\label{eq:nq_xyt}
+    \langle N \rangle = \sum^{n_x n_y}_{ijk} \left(1-\exp{\left(-PDE_{ij}\cdot U_{ij}\right)} \right),
+\end{equation}
+
+where $PDE_{ij} = QE_{ij}\cdot P_{ij}\cdot FF_{ij}$. If the variance in $PDE_{ij}$ is sufficiently low then we can use the average property $\text{PDE}$. And if the lattice density is sufficiently high, the sum \ref{eq:nq_xyt} can be approximated with the integral
+
+\begin{equation}\label{eq:iq_xyt}
+    \langle N \rangle = \int \frac{\text{dx dy}}{\Delta x \Delta y} \left(1-\exp{\left(-\text{PDE}\cdot \text{U(x,y)}\right)}\right),
+\end{equation}
+
+where $\Delta x$, and $\Delta y$ are the lattice spacing, $U(x,y,t) = \Phi(x,y) \Delta x \Delta y$, and the integration limits are $n_x\Delta x$,and $n_y\Delta y$.
+
+\subsection{Three-dimensional lattice}
+
+The probability for any SPAD to fire within a reset window is 
+
+\begin{equation}
+    \rho_{ijk} = 1-\exp{\left(-QE_{ij}\cdot P_{ij}\cdot FF_{ij}\cdot U_{ijk}\right)},
+\end{equation}
+
+where $QE_{ij}$ is the quantum efficiency, $P_{ij}$ is the avalanche triggering probability, $FF_{ij}$ is the effective geometrical fill-factor, and $U_{ijk}$ is the incident number of photons. The expected number of avalanches from a SiPM with $n_x \times n_y$ SPADs after $n_t$ resets is
+
+\begin{equation}\label{eq:nq_xyt}
+    \langle N \rangle = \sum^{n_x n_y n_t}_{ijk} \left(1-\exp{\left(-{PDE}_{ij}\cdot U_{ijk}\right)} \right),
+\end{equation}
+
+where $PDE_{ij} = QE_{ij}\cdot P_{ij}\cdot FF_{ij}$. If the variance in $PDE_{ij}$ is sufficiently low then we can use the average property $\text{PDE}$. And if the lattice density is sufficiently high, the sum \ref{eq:nq_xyt} can be approximated with the integral
+
+\begin{equation}\label{eq:iq_xyt}
+    \langle N \rangle = \int \frac{\text{dx dy dt}}{\Delta x \Delta y \Delta t} \left(1-\exp{\left(-\text{PDE}\cdot \text{U(x,y,t)}\right)}\right),
+\end{equation}
+
+\begin{equation}\label{eq:iq_xyt}
+    \langle N \rangle = \int \frac{\text{dx dy dt}}{\Delta x \Delta y \Delta t} \left(1-\exp{\left(-\text{PDE}\cdot \Phi(x,y,t) \Delta x \Delta y \Delta t\right)}\right),
+\end{equation}
+
+where $\Delta x$, $\Delta y$, and $\Delta t$ are the lattice spacing, $U(x,y,t) = \Phi(x,y,t) \Delta x \Delta y \Delta t$, and the integration limits are $n_x\Delta x$, $n_y\Delta y$, and $n_t\Delta t$.
+
+\subsection{Constant Power Uniform Beam}
+
+Assuming a uniform light distribution with constant power, after one reset time equation \ref{eq:iq_xyt} integrates to
+
+\begin{equation}
+    \langle N \rangle = N_{cells} \left( 1- \exp{\left(-\text{PDE}\cdot \frac{N_{photons}}{N_{cells}}\right)}  \right),
+\end{equation}
+
+where $N_{cells} = n_x n_y$. After a long time $T = n_t\Delta t$, the expected number of avalanches is
+
+\begin{equation}
+    \frac{\langle N \rangle}{T} = \frac{N_{cells}}{\tau} \left( 1- \exp{\left(-\text{PDE}\cdot \frac{R \tau}{N_{cells}}\right)}  \right),
+\end{equation}
+
+where $P$ is the power, $\tau$ is the SPAD reset time, $\nu$ is the frequency, and $h$ is Plancks constant.
+
+\subsection{Constant Power Gaussian Beam}
+
+
+
+
+
+
+
+
+
+
+\subsection{Uniform}
+
+
+Assuming a uniform light distribution and low variance in the PDE, equation \ref{eq:nf-exact} sums to
+
+\begin{equation}\label{eq:nf-uni}
+    N_{avalanches}  \approx N_{cells} \left( 1 - \exp{\left( - \text{PDE} \cdot \frac{N_{photons}}{N_{cells}} \right)} \right),
+\end{equation}
+
+where $N_{cells} = n_x n_y$ and $N_{photons} = \sum_{ij}^{n_x n_y} U_{ij}$, which is the well-known equation for SiPM non-linearity \cite{gruber2014over}. Although equation \ref{eq:nf-exact} is sufficient to determine the non-linear response for a SiPM under any condition, a more convenient form can be reached through continued analysis. The number of SPADs in a continuous area A is
+
+
+Using an unconventional notation where the intrinsic PDE of each SPAD is $\text{PDE}_{ij} = QE_{ij} \cdot P_{ij} \cdot FF_{ij}$, we can re-express equation \ref{eq:nf-exact} as 
+
+\begin{equation}\label{eq:nf-exact-pde}
+    \langle N \rangle =  \sum_{ij}^{n_x n_y} \left( 1 - \exp{\left( - \text{PDE}_{ij} \cdot U_{ij} \right)} \right).
+\end{equation}
+
+
+\subsection{Gaussian beam}
+
+For a uniform distribution of light, the number of cells fired in a SiPM can be approximated by:
+
+\begin{equation}
+    \langle R \rangle = \frac{2 \pi \sigma_x \sigma_y}{\Delta x \Delta y \Delta t}\left[ \gamma + \log{\left(\frac{\text{PDE} \times N_{photons}}{2 \pi \sigma_x \sigma_y/\Delta x \Delta y \Delta t}\right)} -\text{Ei}\left( \frac{-\text{PDE} \times N_{photons}}{2\pi\sigma_x \sigma_y/\Delta x \Delta y \Delta t} \right) \right]
+\end{equation}
+
+\end{document}

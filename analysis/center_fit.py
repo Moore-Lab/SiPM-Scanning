@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
@@ -213,10 +214,8 @@ def find_center(xcsv, ycsv):
 # Main guard: run example analysis if script is executed directly
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'OVfive')
     analyze_and_plot(
-        x_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\4.5_cal_xline_scan_1752613149.csv",
-        y_file=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\SiPM-Scanning\Refined Code\data\4.5_cal_yline_scan_1752613149.csv"
+        x_file=os.path.join(_data_dir, 'meas_0.1_27.3_xline_scan_1772483864.csv'),
+        y_file=os.path.join(_data_dir, 'meas_0.1_27.3_yline_scan_1772483864.csv'),
     )
-    #find_center(        xcsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\x_scan_1751303823.csv",
-        #ycsv=r"C:\Users\ddaya\OneDrive - Yale University\Darroch Research\Refined Code\data\y_scan_1751303823.csv"
-    #)
