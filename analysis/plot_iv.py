@@ -1,408 +1,315 @@
 """
-Plot N_avalanches vs N_photons for both overvoltage settings.
+plot_iv.py
+----------
+Authoritative saturation analysis: fit the Gaussian lattice model to the
+measured saturation curve and produce the publication figures.
 
-Physics:
-  SiPM:  I_sipm = gain * e * pde_eff * N_sipm * (1 + ct + ap)
-         N_avalanches_total = (I_sipm - I_dark) / (gain * e)
-         N_avalanches_primary = N_avalanches_total / (1 + ct + ap)
-           (primary = photon-triggered only; ct and ap removed)
+Pipeline position:  build_h5 -> parse_datasheets -> fit_scan -> plot_iv
 
-  PD:    I_pd = R_eff * P_pd    (R_eff in A/W; I_dark_pd = 0 at 0 V bias)
-         P_pd = I_pd / R_eff                          (optical power on PD, W)
-         N_photons_on_pd = P_pd / E_photon            (E_photon = hc / lambda)
-         N_photons_total = N_photons_on_pd / pd_fraction
-         N_photons_on_sipm = N_photons_total * sipm_fraction
+Usage
+-----
+    python plot_iv.py                     # all points, full diagnostics
+    python plot_iv.py --max-current 2e-3  # keep only points below 2 mA
+    python plot_iv.py --no-show           # write files, no interactive window
 
-Theory (Gaussian illumination — see docs/gaussian_rate_model.md):
-  <R> = (2*pi*sigma_x*sigma_y / (dx*dy*tau)) * [gamma + ln(u) - Ei(-u)]
-  u = PDE * R_gamma * dx * dy * tau / (2*pi*sigma_x*sigma_y)
-  Single free parameter: tau (SPAD reset time)
-  Fixed: PDE, sigma_x/y (plateau from fit_scan.py), dx=dy=35 um (datasheet)
+What changed relative to the previous version, and why
+------------------------------------------------------
+1.  CELL PITCH.  The lattice spacing is the microcell TILING PERIOD,
+    40.66 um, not the 35 um active dimension (whose fill factor is already
+    inside PDE).  See the geometry block in parse_datasheets.py.  This is an
+    exact reparameterisation — the model depends on pitch and tau only through
+    pitch^2 * tau — so it rescales tau by (40.66/35)^2 = 1.35 and changes
+    nothing else.
 
-Error propagation (all in quadrature):
-  Instrument systematic errors from parse_datasheets.py
-  Statistical errors from repeated measurements (stderr stored in HDF5)
-  Estimated errors noted where no datasheet value is available
+2.  ERROR BUDGET.  Calibration constants (SiPM gain, ECF, photodiode
+    responsivity, beamsplitter ratio, PDE, beam widths) move every point
+    coherently and no longer sit in the per-point sigma.  They are propagated
+    by shifting each by +/- 1 sigma and refitting.  The previous treatment put
+    them all in sigma_i, which gave chi2/dof = 0.17 and hid real structure.
+
+3.  REPRODUCIBILITY FLOOR.  The standard error of the averaged readings
+    (0.03-0.1%) is not the point-to-point uncertainty.  Repeat runs at the same
+    ND setting reproduce the SiPM/PD ratio to 0.3-1.9%, so a 1% floor is
+    applied.  See rates.REPRODUCIBILITY_FLOOR.
+
+4.  x-AXIS ERRORS ARE NOW USED.  Folded in with the effective-variance method
+    using the closed-form derivative; previously plotted but ignored.
+
+5.  THE HIGH-CURRENT POINTS ARE FLAGGED.  The device reaches 22 mA at 2.5 V
+    and 59 mA at 4.0 V, four orders of magnitude above the datasheet operating
+    current.  Constant gain cannot be assumed there and the residuals show it.
+    `--max-current` applies a cut and `tau_vs_current_cut` reports the
+    stability of tau against it.  No cut is applied by default: this is a
+    physics decision, and the diagnostic is printed so it can be made
+    explicitly rather than silently.  (The previous version silently dropped
+    the three brightest 4.0 V points with a bare `order[:-3]`.)
 """
 
-import sys, os
+import argparse
+import json
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.constants as const
-from scipy.special import expi
-from scipy.optimize import curve_fit
 
 import parse_datasheets as ds
+import saturation_model as sm
+import rates
+import fit_saturation as fs
+import plotstyle as ps
 
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'measurements.h5')
-PLOT_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plots', 'plot_iv')
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(HERE, 'data', 'measurements.h5')
+PLOT_DIR = os.path.join(HERE, 'plots', 'plot_iv')
 os.makedirs(PLOT_DIR, exist_ok=True)
 
-COLS = ['x', 'y', 'sipm_current', 'sipm_std', 'sipm_stderr',
-        'sipm_time', 'pd_current', 'pd_std', 'pd_stderr', 'pd_time']
-COL = {name: i for i, name in enumerate(COLS)}
-
-# Map HDF5 group name → overvoltage key in SIPM_PARAMS
-OV_MAP = {
-    'OVfive': 2.5,
-    'OVfour': 4.0,
-}
-
-OV_STYLE = {
-    'OVfive': dict(label='2.5 V OV', color='steelblue',  marker='o'),
-    'OVfour': dict(label='4.0 V OV', color='darkorange', marker='s'),
-}
-
-e        = const.e   # electron charge
-E_PHOTON = const.h * const.c / (ds.LASER_D405["wavelength_typ_nm"] * 1e-9)   # J per 405 nm photon
 
 # ---------------------------------------------------------------------------
-# Error on N_photons (from PD):
-#   N_pd = I_pd / R_eff
-#   dN_pd/N_pd = sqrt( (dI_pd/I_pd)^2 + (dR_eff/R_eff)^2 )
-#
-# dI_pd: statistical stderr from HDF5 + systematic from Keithley datasheet
-# dR_eff: calibration cert 25031152700 (≈1.45% 1-sigma at 405 nm) + spectral
-#         model uncertainty added in quadrature.
-#
-# Error on N_avalanches (from SiPM):
-#   N_av = (I_sipm - I_dark) / (gain * e)
-#   dN_av = sqrt( dI_sipm^2 + dI_dark^2 ) / (gain * e)
-#           gain uncertainty propagated separately below
-#
-# gain: estimated 5% relative uncertainty (datasheet gives values at 2 OV
-#       points; interpolation uncertainty not characterised); NOTE — estimated.
-# pde_eff: estimated 5% relative (graph digitisation + spectral model);
-#          NOTE — estimated.
-# crosstalk, afterpulsing: estimated 10% relative on the correction factor
-#          (1 + ct + ap); NOTE — estimated, no calibration measurement.
-# beamsplitter fraction: calibrated value 0.0902 from parse_datasheets.BEAMSPLITTER;
-#          2% relative uncertainty retained.
+# Diagnostics
 # ---------------------------------------------------------------------------
 
-R_eff       = ds.PD_PARAMS["effective_responsivity_A_per_W"]
-I_dark_pd   = ds.PD_PARAMS["dark_current_A"]
-pd_frac     = ds.PD_PARAMS["pd_fraction"]
-sipm_frac   = ds.PD_PARAMS["sipm_fraction"]
-
-REL_ERR_R_EFF         = 0.02   # calibration cert 25031152700: 2.9% k=2 at 405 nm → 1.45% 1-sigma; ~0.5% spectral model added in quadrature
-REL_ERR_BS_FRAC       = 0.02   # calibrated fraction 0.0902; 2% relative uncertainty
-REL_ERR_GAIN_DIGITIZE = 0.02   # residual graph-digitization uncertainty on gain curve
-REL_ERR_CT_AP_DIGITIZE= 0.05   # residual digitization on ECF = (1+ct+ap)
-# NOTE: dominant OV-dependent errors (gain, PDE, CT, AP) are now computed via
-# VBD_ERR_V propagation in parse_datasheets.vbd_errors_at_ov() and stored
-# in SIPM_PARAMS[ov]['*_err_vbd']; they are combined in avalanches_and_err().
-
-# ---------------------------------------------------------------------------
-# Gaussian illumination theory model
-# ---------------------------------------------------------------------------
-
-EULER_GAMMA  = 0.5772156649015329
-CELL_PITCH_M = ds.SIPM_60035_GENERAL["microcell_pitch_um"] * 1e-6   # 35 µm → m
-TAU_INIT_S   = ds.SIPM_60035_PERFORMANCE["microcell_recharge_tau_ns"] * 1e-9  # 50 ns (τ₀)
-TAU_0_S      = TAU_INIT_S                                            # reference unit for multiplier fit
-
-
-def gaussian_avalanche_rate(R_gamma, tau, pde, sigma_x_m, sigma_y_m):
+def residual_structure(residuals):
     """
-    Expected PRIMARY avalanche rate for a centred Gaussian beam.
+    Sign-change count of the ordered residuals.
 
-    R_gamma   : photons/s incident on SiPM face
-    tau       : SPAD reset time (s)  — the single fitted parameter
-    pde       : laser-weighted effective PDE (dimensionless)
-    sigma_x_m : beam sigma in X (m)
-    sigma_y_m : beam sigma in Y (m)
-
-    Returns avalanche rate (avalanches/s), primary only (CT/AP excluded).
+    For residuals that are pure noise the expected number of sign changes is
+    (n-1)/2.  A value far below that means the deviation from the model is
+    coherent — i.e. the model is wrong in a systematic way — and cannot be
+    fixed by enlarging the error bars.
     """
-    dx = dy = CELL_PITCH_M
-    u  = pde * R_gamma * dx * dy * tau / (2.0 * np.pi * sigma_x_m * sigma_y_m)
-    u  = np.maximum(u, 1e-30)   # guard against log(0)
-    prefactor = 2.0 * np.pi * sigma_x_m * sigma_y_m / (dx * dy * tau)
-    return prefactor * (EULER_GAMMA + np.log(u) - expi(-u))
+    s = np.sign(residuals)
+    changes = int(np.sum(s[1:] != s[:-1]))
+    expected = (len(residuals) - 1) / 2.0
+    return changes, expected
 
 
-def Nfired_func(n, x_stdv, y_stdv, pde, reset):
+def tau_vs_current_cut(ms, free_pde=False, cuts_mA=(np.inf, 20, 10, 5, 2, 1)):
     """
-    Saturation-curve model: fired-microcell rate for Gaussian illumination.
+    Refit while progressively removing the highest-current points.
 
-    n      : N_incident — photons/s on SiPM face
-    x_stdv : beam sigma_x (m)
-    y_stdv : beam sigma_y (m)
-    pde    : detection efficiency (dimensionless; fixed per OV setting)
-    reset  : microcell recovery time tau (s) — free fit parameter
-
-    Returns N_fired (primary avalanches/s, CT/AP excluded).
-
-    Parameterisation matches saturation_curve.md:
-      A   = 2*pi*sigma_x*sigma_y / (pitch^2 * reset)   [effective illuminated cells]
-      arg = pde * n / A
-      N_fired = A * [gamma + ln(arg) - Ei(-arg)]
-    Identical to gaussian_avalanche_rate(n, reset, pde, x_stdv, y_stdv).
+    A tau that drifts with the cut means the high-current data are pulling the
+    fit; a tau that plateaus means the cut is safe.
     """
-    a   = CELL_PITCH_M**2 * reset
-    A   = 2.0 * np.pi * x_stdv * y_stdv / a
-    arg = np.maximum(pde * n / A, 1e-30)
-    return A * (EULER_GAMMA + np.log(arg) - expi(-arg))
-
-
-def photons_and_err(I_pd, I_pd_stat_err, keithley_sys_err):
-    """
-    Return (N_photons_total, N_photons_total_err, N_photons_on_sipm, N_photons_on_sipm_err).
-
-    N_photons_total = photon rate at the beamsplitter input (photons/s).
-    N_photons_on_sipm = N_photons_total * sipm_fraction (10% arm).
-
-    Conversion chain:
-      P_pd   = (I_pd - I_dark_pd) / R_eff          optical power on PD (W)
-      N_pd   = P_pd / E_PHOTON                      photon rate on PD (photons/s)
-      N_total = N_pd / pd_frac                      total rate at beamsplitter
-      N_sipm  = N_total * sipm_frac                 rate on SiPM face
-    """
-    dI_pd   = np.sqrt(I_pd_stat_err**2 + keithley_sys_err**2)
-    P_pd    = (I_pd - I_dark_pd) / R_eff      # optical power on PD (W)
-    N_pd    = P_pd / E_PHOTON                  # photon rate on PD (photons/s)
-    N_total = N_pd / pd_frac
-    rel_err = np.sqrt((dI_pd / I_pd)**2 + REL_ERR_R_EFF**2 + REL_ERR_BS_FRAC**2)
-    N_sipm  = N_total * sipm_frac
-    return N_total, N_total * rel_err, N_sipm, N_sipm * rel_err
-
-
-def avalanches_and_err(I_sipm, I_sipm_stat_err, siglent_sys_err,
-                       gain, I_dark_sipm, pde_eff, ct, ap,
-                       gain_err_vbd=0.0, ct_err_vbd=0.0, ap_err_vbd=0.0):
-    """
-    Return (N_av_total, N_av_total_err, N_av_primary, N_av_primary_err).
-
-    N_av_total   = (I_sipm - I_dark) / (gain * e)  — includes CT and AP
-    N_av_primary = N_av_total / (1 + ct + ap)       — photon-triggered only
-
-    gain_err_vbd : absolute 1-sigma error on gain from VBD uncertainty (SIPM_PARAMS)
-    ct_err_vbd   : absolute 1-sigma error on crosstalk fraction from VBD uncertainty
-    ap_err_vbd   : absolute 1-sigma error on afterpulsing fraction from VBD uncertainty
-
-    Gain error: VBD contribution added in quadrature with residual digitization.
-    ECF error:  VBD contributions on ct and ap added in quadrature with digitization.
-    """
-    dI_sipm  = np.sqrt(I_sipm_stat_err**2 + siglent_sys_err**2)
-    I_net    = I_sipm - I_dark_sipm
-    N_av     = I_net / (gain * e)
-    dN_av    = np.sqrt(dI_sipm**2 + (I_dark_sipm * 0.05)**2) / (gain * e)
-
-    gain_rel_err = np.sqrt((gain_err_vbd / gain)**2 + REL_ERR_GAIN_DIGITIZE**2)
-    dN_av        = np.sqrt(dN_av**2 + (N_av * gain_rel_err)**2)
-
-    ecf        = 1.0 + ct + ap
-    N_av_pri   = N_av / ecf
-    dECF_vbd   = np.sqrt(ct_err_vbd**2 + ap_err_vbd**2)   # absolute, fraction units
-    dECF_total = np.sqrt(dECF_vbd**2 + (ecf * REL_ERR_CT_AP_DIGITIZE)**2)
-    dN_av_pri  = N_av_pri * np.sqrt((dN_av / N_av)**2 + (dECF_total / ecf)**2)
-    return N_av, dN_av, N_av_pri, dN_av_pri
-
-
-fig, ax = plt.subplots(figsize=(8, 6))
-
-fig2, (ax2ratio, ax2, ax2r) = plt.subplots(
-    3, 1, figsize=(8, 10),
-    gridspec_kw={'height_ratios': [1.5, 3, 1]},
-    sharex=True,
-)
-fig2.subplots_adjust(hspace=0.05)
-
-with h5py.File(DATA_FILE, 'r') as f:
-    for ov_key, style in OV_STYLE.items():
-        if ov_key not in f:
+    rows = []
+    for cut in cuts_mA:
+        sub = ms if not np.isfinite(cut) else ms.current_cut(cut * 1e-3)
+        if len(sub) < 8:
             continue
-        grp = f[ov_key]
-        ov  = OV_MAP[ov_key]
-        sp  = ds.SIPM_PARAMS[ov]
-        gain             = sp["gain"]
-        pde              = sp["effective_pde"]
-        ct               = sp["crosstalk"]
-        ap               = sp["afterpulsing"]
-        I_dark_sipm      = sp["dark_current_measured_A"]
-        gain_err_vbd     = sp["gain_err_vbd"]
-        ct_err_vbd       = sp["crosstalk_err_vbd"]
-        ap_err_vbd       = sp["afterpulsing_err_vbd"]
+        r = fs.fit_tau(sub, free_pde=free_pde)
+        frac = sub.y / sm.gaussian_rate(sub.x, r.tau, r.pde, sub.sigma_x,
+                                        sub.sigma_y, sub.pitch) - 1.0
+        changes, expected = residual_structure(frac)
+        rows.append(dict(cut_mA=cut, n=len(sub), tau=r.tau, tau_err=r.tau_stat,
+                         pde=r.pde, chi2_red=r.chi2_red,
+                         frac_rms=float(frac.std(ddof=1)),
+                         sign_changes=changes, sign_expected=expected))
+    return rows
 
-        # --- plateau beam sigmas (saved by fit_scan.py) ---
-        if 'plateau_sigma_x_mm' in grp.attrs:
-            sigma_x_m = float(grp.attrs['plateau_sigma_x_mm']) * 1e-3
-            sigma_y_m = float(grp.attrs['plateau_sigma_y_mm']) * 1e-3
-            print(f"{ov_key}: sigma_x={sigma_x_m*1e3:.3f} mm  sigma_y={sigma_y_m*1e3:.3f} mm")
-        else:
-            sigma_x_m = sigma_y_m = None
-            print(f"{ov_key}: plateau_sigma not in HDF5 — run fit_scan.py first; theory fits skipped")
 
-        N_ph_list, N_ph_err_list         = [], []
-        N_av_list, N_av_err_list         = [], []
-        N_pri_list, N_pri_err_list       = [], []
-        N_sipm_list, N_sipm_err_list     = [], []
-        I_pd_list, I_pd_err_list         = [], []
-        I_sipm_list, I_sipm_err_list     = [], []
+# ---------------------------------------------------------------------------
+# Figures
+# ---------------------------------------------------------------------------
 
-        for run_name in sorted(grp.keys()):
-            run = grp[run_name]
-            if 'center_scan' not in run:
+def figure_raw_iv(sets, path):
+    fig, ax = plt.subplots(figsize=(ps.COLUMN_WIDTH, ps.COLUMN_WIDTH * 0.8))
+    for ms in sets:
+        st = ps.OV_STYLE[ms.ov_key]
+        i_pd = ms.x / ds.PD_PARAMS["sipm_fraction"] * ds.PD_PARAMS["pd_fraction"] \
+            * rates.E_PHOTON * ds.PD_PARAMS["effective_responsivity_A_per_W"]
+        ax.plot(i_pd * 1e9, ms.i_sipm * 1e6, st['marker'], color=st['color'],
+                label=st['label'], linestyle='none')
+    ax.set_xlabel(r'Photodiode current (nA)')
+    ax.set_ylabel(r'SiPM current ($\mu$A)')
+    ax.set_xscale('log'); ax.set_yscale('log')
+    ps.grid(ax); ax.legend(loc='lower right')
+    fig.tight_layout()
+    return ps.save(fig, path)
+
+
+def figure_saturation(sets, fits, path):
+    """The money plot: response, efficiency ratio, and pulls."""
+    fig, (axr, axm, axp) = plt.subplots(
+        3, 1, figsize=(ps.COLUMN_WIDTH * 1.55, ps.COLUMN_WIDTH * 2.5),
+        gridspec_kw={'height_ratios': [1.1, 2.4, 1.0]}, sharex=True)
+    fig.subplots_adjust(hspace=0.06)
+
+    for ms, fit in zip(sets, fits):
+        st = ps.OV_STYLE[ms.ov_key]
+        xs = np.geomspace(ms.x.min() * 0.85, ms.x.max() * 1.2, 400)
+        model = sm.gaussian_rate(xs, fit.tau, fit.pde, ms.sigma_x, ms.sigma_y,
+                                 ms.pitch)
+
+        # --- main panel ---
+        axm.errorbar(ms.x, ms.y, xerr=ms.x_err, yerr=ms.y_err,
+                     fmt=st['marker'], color=st['color'], linestyle='none',
+                     elinewidth=0.7, label=f"{st['label']} data")
+        axm.plot(xs, model, '-', color=st['color'],
+                 label=(rf"{st['label']} fit: $\tau={fit.tau*1e9:.0f}\pm"
+                        rf"{fit.tau_syst*1e9:.0f}$ ns "
+                        rf"$={fit.tau_multiple:.1f}\,\tau_0$"))
+
+        # --- efficiency ratio ---
+        axr.errorbar(ms.x, ms.y / ms.x, yerr=ms.y_err / ms.x,
+                     fmt=st['marker'], color=st['color'], linestyle='none',
+                     elinewidth=0.7)
+        axr.plot(xs, model / xs, '-', color=st['color'])
+        axr.axhline(ms.pde, color=st['color'], linestyle=':', linewidth=0.9)
+
+        # --- pulls ---
+        axp.plot(ms.x, fit.residuals, st['marker'], color=st['color'],
+                 linestyle='none',
+                 label=rf"{st['label']}  $\chi^2/\nu={fit.chi2_red:.1f}$")
+
+    axm.set_ylabel(r'$N_{\rm fired}$  (primary avalanches s$^{-1}$)')
+    axm.set_xscale('log'); axm.set_yscale('log')
+    ps.grid(axm); axm.legend(loc='upper left')
+
+    axr.set_ylabel(r'$N_{\rm fired}/N_{\rm incident}$')
+    axr.set_xscale('log'); axr.set_yscale('log')
+    ps.grid(axr)
+
+    axp.axhline(0, color='k', linewidth=0.7, linestyle='--')
+    axp.set_xlabel(r'$N_{\rm incident}$  (photons s$^{-1}$ on the SiPM face)')
+    axp.set_ylabel(r'Pull ($\sigma$)')
+    axp.set_xscale('log')
+    ps.grid(axp); axp.legend(loc='upper left')
+
+    fig.tight_layout()
+    return ps.save(fig, path)
+
+
+def figure_cut_stability(scans, path):
+    """tau and residual rms against the high-current cut."""
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(ps.COLUMN_WIDTH * 1.35, ps.COLUMN_WIDTH * 1.6),
+        sharex=True)
+    fig.subplots_adjust(hspace=0.08)
+
+    for ov_key, rows in scans.items():
+        st = ps.OV_STYLE[ov_key]
+        cuts = [r['cut_mA'] if np.isfinite(r['cut_mA']) else 100 for r in rows]
+        ax1.errorbar(cuts, [r['tau'] * 1e9 for r in rows],
+                     yerr=[r['tau_err'] * 1e9 for r in rows],
+                     fmt=st['marker'] + '-', color=st['color'],
+                     label=st['label'], elinewidth=0.7)
+        ax2.plot(cuts, [100 * r['frac_rms'] for r in rows],
+                 st['marker'] + '-', color=st['color'])
+
+    ax1.set_ylabel(r'Fitted $\tau$ (ns)')
+    ax1.set_xscale('log')
+    ps.grid(ax1); ax1.legend()
+    ax2.set_ylabel('Fractional residual rms (%)')
+    ax2.set_xlabel('SiPM current cut (mA);  100 = no cut')
+    ax2.set_xscale('log'); ax2.set_yscale('log')
+    ps.grid(ax2)
+    fig.tight_layout()
+    return ps.save(fig, path)
+
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+def report(ms, fit, scan):
+    print("=" * 78)
+    print(f"{ms.ov_key}   {ms.label}   N = {len(ms)} points"
+          + (f"   ({ms.dropped} brightest dropped)" if ms.dropped else ""))
+    print(f"  cell pitch      : {ms.pitch*1e6:.3f} um   (tiling period)")
+    print(f"  beam widths     : sigma_x = {ms.sigma_x*1e3:.4f} mm, "
+          f"sigma_y = {ms.sigma_y*1e3:.4f} mm")
+    print(f"  SiPM current    : {ms.i_sipm.min()*1e6:.1f} uA .. "
+          f"{ms.i_sipm.max()*1e3:.2f} mA")
+    print(f"  readout errors  : median {np.median(ms.y_err_readout/ms.y):.3%}"
+          f"   + {ms.floor:.1%} reproducibility floor")
+    print()
+    print(f"  {fit.summary()}")
+
+    changes, expected = residual_structure(fit.residuals)
+    print(f"  residual sign changes: {changes} of {len(fit.residuals)-1} "
+          f"(noise would give ~{expected:.0f})")
+    if changes < expected / 3:
+        print("    -> residuals are COHERENT: model-data disagreement is "
+              "systematic, not scatter")
+
+    print(f"\n  systematic budget on tau (ns):")
+    for k, v in sorted(fit.syst_terms.items(), key=lambda kv: -kv[1]):
+        print(f"    {k:<20s} {v*1e9:8.2f}")
+    print(f"    {'TOTAL':<20s} {fit.tau_syst*1e9:8.2f}")
+
+    print(f"\n  stability against the high-current cut:")
+    print(f"    {'cut':>8} {'n':>4} {'tau (ns)':>12} {'PDE':>8} "
+          f"{'chi2/dof':>9} {'resid rms':>10} {'signchg':>8}")
+    for r in scan:
+        lbl = 'none' if not np.isfinite(r['cut_mA']) else f"{r['cut_mA']:g} mA"
+        print(f"    {lbl:>8} {r['n']:>4d} {r['tau']*1e9:>8.1f}"
+              f" +/-{r['tau_err']*1e9:<4.1f} {r['pde']:>8.4f} "
+              f"{r['chi2_red']:>9.1f} {100*r['frac_rms']:>9.2f}% "
+              f"{r['sign_changes']:>4d}/{r['sign_expected']:.0f}")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('--max-current', type=float, default=None,
+                   help='discard points above this SiPM current (A)')
+    p.add_argument('--free-pde', action='store_true',
+                   help='also float the PDE (cross-check fit)')
+    p.add_argument('--no-show', action='store_true')
+    args = p.parse_args()
+
+    ps.use_publication_style()
+
+    sets, fits, scans, results = [], [], {}, {}
+    with h5py.File(DATA_FILE, 'r') as f:
+        for ov_key in ('OVfive', 'OVfour'):
+            if ov_key not in f:
                 continue
-            row = run['center_scan'][0]
+            ms = rates.load_overvoltage(f, ov_key)
+            if args.max_current:
+                ms = ms.current_cut(args.max_current)
+            fit = fs.fit_with_systematics(ms, free_pde=args.free_pde)
+            scan = tau_vs_current_cut(ms, free_pde=args.free_pde)
 
-            I_pd   = row[COL['pd_current']]
-            I_pd_s = row[COL['pd_stderr']]
-            I_sipm = row[COL['sipm_current']]
-            I_si_s = row[COL['sipm_stderr']]
+            sets.append(ms); fits.append(fit); scans[ov_key] = scan
+            report(ms, fit, scan)
 
-            k_sys  = ds.keithley_current_accuracy(I_pd)
-            si_sys = ds.siglent_current_accuracy(I_sipm)
+            results[ov_key] = dict(
+                overvoltage_V=ms.ov, n_points=len(ms),
+                cell_pitch_um=ms.pitch * 1e6,
+                sigma_x_mm=ms.sigma_x * 1e3, sigma_y_mm=ms.sigma_y * 1e3,
+                tau_ns=fit.tau * 1e9, tau_stat_ns=fit.tau_stat * 1e9,
+                tau_syst_ns=fit.tau_syst * 1e9,
+                tau_over_tau0=fit.tau_multiple,
+                pde=fit.pde, pde_free=bool(args.free_pde),
+                chi2=fit.chi2, ndof=fit.ndof, chi2_red=fit.chi2_red,
+                systematics_ns={k: v * 1e9 for k, v in fit.syst_terms.items()},
+                current_cut_scan=[
+                    {k: (None if k == 'cut_mA' and not np.isfinite(v) else v)
+                     for k, v in row.items()} for row in scan],
+            )
 
-            N_ph, N_ph_err, N_sipm, N_sipm_err = photons_and_err(I_pd, I_pd_s, k_sys)
-            N_av, N_av_err, N_pri, N_pri_err = avalanches_and_err(
-                I_sipm, I_si_s, si_sys, gain, I_dark_sipm, pde, ct, ap,
-                gain_err_vbd, ct_err_vbd, ap_err_vbd)
+    print("=" * 78)
+    written = [
+        figure_raw_iv(sets, os.path.join(PLOT_DIR, 'raw_iv')),
+        figure_saturation(sets, fits, os.path.join(PLOT_DIR, 'saturation_curve')),
+        figure_cut_stability(scans, os.path.join(PLOT_DIR, 'cut_stability')),
+    ]
+    out_json = os.path.join(PLOT_DIR, 'results.json')
+    with open(out_json, 'w') as fh:
+        json.dump(results, fh, indent=2)
 
-            N_ph_list.append(N_ph);         N_ph_err_list.append(N_ph_err)
-            N_av_list.append(N_av);         N_av_err_list.append(N_av_err)
-            N_pri_list.append(N_pri);       N_pri_err_list.append(N_pri_err)
-            N_sipm_list.append(N_sipm);     N_sipm_err_list.append(N_sipm_err)
-            I_pd_list.append(I_pd);         I_pd_err_list.append(np.sqrt(I_pd_s**2 + k_sys**2))
-            I_sipm_list.append(I_sipm);     I_sipm_err_list.append(np.sqrt(I_si_s**2 + si_sys**2))
+    print("Written:")
+    for w in written:
+        print(f"  {w}")
+    print(f"  {out_json}")
 
-        N_ph      = np.array(N_ph_list);       N_ph_err    = np.array(N_ph_err_list)
-        N_av_arr  = np.array(N_av_list);       N_av_err_arr = np.array(N_av_err_list)
-        N_pri     = np.array(N_pri_list);      N_pri_err   = np.array(N_pri_err_list)
-        N_sipm    = np.array(N_sipm_list);     N_sipm_err  = np.array(N_sipm_err_list)
-        I_pd_arr  = np.array(I_pd_list);       I_pd_err_arr  = np.array(I_pd_err_list)
-        I_si_arr  = np.array(I_sipm_list);     I_si_err_arr  = np.array(I_sipm_err_list)
-
-        order = np.argsort(N_ph)
-        if ov_key == 'OVfour':
-            order = order[:-3]
-
-        # Figure 1 uses its own sort — all points, indexed within I_pd_arr
-        order_raw = np.argsort(I_pd_arr)
-
-        # --- Figure 1: raw I_sipm vs I_pd ---
-        ax.errorbar(
-            I_pd_arr[order_raw] * 1e9, I_si_arr[order_raw] * 1e6,
-            xerr=I_pd_err_arr[order_raw] * 1e9, yerr=I_si_err_arr[order_raw] * 1e6,
-            fmt=style['marker'], color=style['color'],
-            label=style['label'],
-            markersize=5, linewidth=0.8, capsize=3, elinewidth=0.8,
-        )
-
-        # N_incident / N_fired arrays for Figure 2 (independent of sigma)
-        R_gamma     = N_sipm[order]           # photons/s on SiPM face
-        R_gamma_err = N_sipm_err[order]
-        R_obs       = N_pri[order]            # primary avalanches/s (ECF corrected)
-        R_err       = N_pri_err[order]
-        ecf         = 1.0 + ct + ap
-
-        ax2.errorbar(
-            R_gamma, R_obs,
-            xerr=R_gamma_err, yerr=R_err,
-            fmt=style['marker'], color=style['color'],
-            label=style['label'],
-            markersize=5, linewidth=0.8, capsize=3, elinewidth=0.8,
-        )
-
-        # ratio N_fired / N_incident — approaches PDE in the unsaturated regime
-        ratio_mask = (R_gamma > 0) & (R_obs > 0)
-        ratio     = np.where(ratio_mask, R_obs / R_gamma, np.nan)
-        ratio_err = np.where(ratio_mask,
-                             ratio * np.sqrt((R_err / np.where(R_obs > 0, R_obs, 1))**2
-                                             + (R_gamma_err / R_gamma)**2),
-                             np.nan)
-        ax2ratio.errorbar(
-            R_gamma[ratio_mask], ratio[ratio_mask],
-            xerr=R_gamma_err[ratio_mask], yerr=ratio_err[ratio_mask],
-            fmt=style['marker'], color=style['color'],
-            label=style['label'],
-            markersize=5, linewidth=0.8, capsize=3, elinewidth=0.8,
-        )
-        ax2ratio.axhline(pde, color=style['color'], linewidth=1.0, linestyle='--',
-                         label=f"{style['label']} PDE$_{{\\rm DS}}$ = {pde:.3f}")
-
-        if sigma_x_m is not None:
-            valid2 = (R_gamma > 0) & (R_obs > 0) & np.isfinite(R_err) & (R_err > 0)
-            print(f"{ov_key}: {valid2.sum()} / {len(R_gamma)} points pass validity cut")
-
-            if valid2.sum() >= 2:
-                # Free parameters: a = tau/tau_0, pde_fit (PDE; datasheet value as p0)
-                try:
-                    popt2, pcov2 = curve_fit(
-                        lambda n, a, pde_fit: Nfired_func(n, sigma_x_m, sigma_y_m, pde_fit, a * TAU_0_S),
-                        R_gamma[valid2], R_obs[valid2],
-                        sigma=R_err[valid2], absolute_sigma=True,
-                        p0=[1.0, pde],
-                        bounds=([0.01, 0.01], [200.0, 0.99]),
-                        maxfev=10000,
-                    )
-                    perr2     = np.sqrt(np.diag(pcov2))
-                    a_fit2    = float(popt2[0]);  a_err2   = float(perr2[0])
-                    pde_fit2  = float(popt2[1]);  pde_err2 = float(perr2[1])
-                    reset_fit = a_fit2 * TAU_0_S
-
-                    n_fine  = np.geomspace(R_gamma[valid2].min(), R_gamma[valid2].max(), 300)
-                    nf_fine = Nfired_func(n_fine, sigma_x_m, sigma_y_m, pde_fit2, reset_fit)
-                    ax2.plot(n_fine, nf_fine, color=style['color'], linewidth=1.6,
-                             label=(rf"{style['label']} fit  "
-                                    rf"$a={a_fit2:.2f}\pm{a_err2:.2f}$  ($\tau={reset_fit*1e9:.0f}$ ns)"
-                                    rf"  PDE$={pde_fit2:.3f}\pm{pde_err2:.3f}$"))
-
-                    ax2ratio.plot(n_fine, nf_fine / n_fine, color=style['color'], linewidth=1.4,
-                                 label=rf"{style['label']} model  PDE$_{{fit}}={pde_fit2:.3f}\pm{pde_err2:.3f}$")
-
-                    nf_pred = Nfired_func(R_gamma[valid2], sigma_x_m, sigma_y_m, pde_fit2, reset_fit)
-                    resid   = (R_obs[valid2] - nf_pred) / R_err[valid2]
-                    chi2r   = float(np.sum(resid**2) / max(valid2.sum() - 2, 1))
-                    ax2r.errorbar(
-                        R_gamma[valid2], resid,
-                        xerr=R_gamma_err[valid2], yerr=np.ones_like(resid),
-                        fmt=style['marker'], color=style['color'],
-                        markersize=5, linewidth=0.8, capsize=3, elinewidth=0.8,
-                        label=f"{style['label']}  chi2/dof={chi2r:.2f}",
-                    )
-                    print(f"{ov_key} fit: a = {a_fit2:.3f} +/- {a_err2:.3f} "
-                          f"(tau = {reset_fit*1e9:.1f} ns),  "
-                          f"PDE = {pde_fit2:.4f} +/- {pde_err2:.4f} "
-                          f"(DS: {pde:.4f}),  chi2/dof = {chi2r:.2f}")
-                except Exception as exc:
-                    print(f"{ov_key}: fit failed — {exc}")
+    if not args.no_show:
+        plt.show()
 
 
-ax.set_xlabel('Photodiode current (nA)')
-ax.set_ylabel('SiPM current (µA)')
-ax.set_xscale('log')
-ax.set_yscale('log')
-ax.set_title('Raw IV: SiPM current vs photodiode current')
-ax.legend(fontsize=8)
-ax.grid(True, which='both', linestyle='--', linewidth=0.4, alpha=0.6)
-fig.tight_layout()
-fig.savefig(os.path.join(PLOT_DIR, 'raw_iv.png'), dpi=150)
-
-# --- Saturation curve figure ---
-ax2.set_ylabel('$N_{\\rm fired}$ (primary avalanches / s, ECF corrected)')
-ax2.set_xscale('log')
-ax2.set_yscale('log')
-ax2.legend(fontsize=8)
-ax2.grid(True, which='both', linestyle='--', linewidth=0.4, alpha=0.6)
-ax2.set_title('SiPM saturation curve: $N_{\\rm fired}$ vs $N_{\\rm incident}$')
-
-ax2ratio.set_ylabel('$N_{\\rm fired}\\,/\\,N_{\\rm incident}$')
-ax2ratio.set_xscale('log')
-ax2ratio.legend(fontsize=7)
-ax2ratio.grid(True, which='both', linestyle='--', linewidth=0.4, alpha=0.6)
-
-ax2r.axhline(0, color='k', linewidth=0.8, linestyle='--')
-ax2r.set_xlabel('$N_{\\rm incident}$ (photons / s on SiPM face)')
-ax2r.set_ylabel('Residuals (σ)')
-ax2r.legend(fontsize=7)
-ax2r.grid(True, which='both', linestyle='--', linewidth=0.4, alpha=0.6)
-
-fig2.tight_layout()
-fig2.savefig(os.path.join(PLOT_DIR, 'saturation_curve.png'), dpi=150)
-
-plt.show()
+if __name__ == '__main__':
+    main()
