@@ -19,13 +19,44 @@ import numpy as np
 # onsemi MicroFJ-60035-TSV  (MICROJ-SERIES-D.pdf)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Microcell geometry — READ THIS BEFORE CHANGING ANY PITCH VALUE
+#
+# The lattice model sums over one SPAD per voxel of area dx*dy, so the length
+# that enters the model is the *tiling period* of the microcell array — the
+# repeating unit cell — NOT the photosensitive dimension of one cell.
+#
+# The datasheet quotes "microcell size 35 um".  That is the ACTIVE dimension.
+# The tiling period follows from the active area and the cell count:
+#
+#     pitch = sqrt(A_active / N_cells) = sqrt(36.8449 mm^2 / 22292) = 40.66 um
+#
+# Consistency check: (35 / 40.66)^2 = 0.741, which reproduces the datasheet
+# fill factor.  So 35 um is the active dimension of a 40.66 um cell, and the
+# dead space between cells is already accounted for inside PDE via the fill
+# factor.  Using 35 um as dx*dy double-counts the fill factor and inflates the
+# fitted reset time by (40.66/35)^2 = 1.35.
+#
+# Independently confirmed by the Monte Carlo (BeamMC), which bins photons into
+# cells of size `pitch`: the analytic model reproduces the MC only when dx*dy
+# equals the MC's tiling pitch (agreement 0.973 +/- 0.023 at matched pitch,
+# 0.557 +/- 0.034 at 35 um).
+# ---------------------------------------------------------------------------
+
+_ACTIVE_AREA_MM2 = 6.07 * 6.07
+_N_MICROCELLS    = 22292
+
 # General parameters (Table 1)
 SIPM_60035_GENERAL = {
     "model":                      "MicroFJ-60035-TSV",
     "manufacturer":               "onsemi",
-    "active_area_mm2":            6.07 * 6.07,        # 6.07 x 6.07 mm
-    "n_microcells":               22292,
-    "microcell_pitch_um":         35.0,
+    "active_area_mm2":            _ACTIVE_AREA_MM2,   # 6.07 x 6.07 mm
+    "n_microcells":               _N_MICROCELLS,
+    # Tiling period of the microcell lattice — this is what enters the model.
+    "microcell_pitch_um":         np.sqrt(_ACTIVE_AREA_MM2 / _N_MICROCELLS) * 1e3,
+    # Photosensitive dimension quoted by the datasheet. Already folded into PDE
+    # through the fill factor; do NOT use it as the lattice spacing.
+    "microcell_active_um":        35.0,
     "vbr_typ_V":                  24.7,
     "vbr_min_V":                  24.2,
     "vbr_tempco_mV_per_C":        21.5,
@@ -35,6 +66,17 @@ SIPM_60035_GENERAL = {
     "peak_pde_wavelength_nm":     420.0,
     "measurement_temp_C":         21.0,
 }
+
+# Fill factor implied by the two datasheet numbers; sanity-checks the geometry.
+SIPM_60035_GENERAL["fill_factor_derived"] = (
+    SIPM_60035_GENERAL["microcell_active_um"] /
+    SIPM_60035_GENERAL["microcell_pitch_um"]
+) ** 2
+
+assert abs(SIPM_60035_GENERAL["fill_factor_derived"] - 0.741) < 0.005, (
+    "Microcell geometry is inconsistent with the datasheet fill factor (~74%). "
+    "Check active_area_mm2, n_microcells and microcell_active_um."
+)
 
 # Breakdown voltage uncertainty (1-sigma, estimated from unit-to-unit spread and
 # temperature stability).  Since OV = V_bias − V_BD and V_bias is set precisely,
@@ -126,9 +168,25 @@ SIGLENT_DC_CURRENT = {
 
 def siglent_current_accuracy(current_A):
     """Return absolute accuracy (A) for a given DC current reading."""
+    rel, off = siglent_accuracy_split(current_A)
+    return rel * abs(current_A) + off
+
+
+def siglent_accuracy_split(current_A):
+    """
+    Split the DMM accuracy spec into its correlated and uncorrelated parts.
+
+    Returns (rel_gain, abs_offset):
+      rel_gain   – the "% of reading" term.  This is a GAIN error: it scales
+                   every reading on the same range coherently, so it is
+                   CORRELATED across data points and must not be put into the
+                   per-point sigma of a fit.
+      abs_offset – the "counts x resolution" term.  Independent per reading;
+                   treat as UNCORRELATED.
+    """
     for row in SIGLENT_DC_CURRENT["accuracy_table"]:
         if abs(current_A) <= row["range_A"] * 1.1:   # 10% over-range allowed
-            return (row["pct_rdg"] / 100.0) * abs(current_A) + row["offset_counts"] * row["resolution_A"]
+            return row["pct_rdg"] / 100.0, row["offset_counts"] * row["resolution_A"]
     raise ValueError(f"Current {current_A} A out of range for SDM3045X")
 
 # ---------------------------------------------------------------------------
@@ -157,9 +215,20 @@ KEITHLEY_6487_CURRENT = {
 
 def keithley_current_accuracy(current_A):
     """Return absolute accuracy (A) for a given DC current reading."""
+    rel, off = keithley_accuracy_split(current_A)
+    return rel * abs(current_A) + off
+
+
+def keithley_accuracy_split(current_A):
+    """
+    Split the picoammeter accuracy spec into correlated and uncorrelated parts.
+    See `siglent_accuracy_split` for the rationale.
+
+    Returns (rel_gain, abs_offset).
+    """
     for row in KEITHLEY_6487_CURRENT["accuracy_table"]:
         if abs(current_A) <= row["range_A"]:
-            return (row["pct_rdg"] / 100.0) * abs(current_A) + row["offset_A"]
+            return row["pct_rdg"] / 100.0, row["offset_A"]
     raise ValueError(f"Current {current_A} A out of range for Keithley 6487")
 
 # ---------------------------------------------------------------------------
