@@ -255,3 +255,50 @@ def gaussian_pulse_series(c0, n_terms=None):
     log_terms = k * np.log(c0) - 2.0 * np.log(k) - gammaln(k + 1.0)
     signs = np.where(k.astype(int) % 2 == 1, 1.0, -1.0)
     return float(np.sum(signs * np.exp(log_terms)))
+
+
+# ---------------------------------------------------------------------------
+# General case: numerical integration over an arbitrary measured profile
+# ---------------------------------------------------------------------------
+
+def continuum_rate(R_gamma, tau, pde, pitch, flux, dA):
+    """
+    Avalanche rate for an ARBITRARY illumination profile by direct numerical
+    integration of the continuum model,
+
+        <R> = SUM_pixels  dA / (pitch^2 tau) * [1 - exp(-PDE R_gamma phi pitch^2 tau)]
+
+    Parameters
+    ----------
+    R_gamma : incident photon rate on the device (1/s), scalar or array
+    flux    : normalised flux density on a grid (integral over the device = 1),
+              any shape. Only pixels ON the device should be included.
+    dA      : pixel area (m^2); <= pitch^2 and fine enough to resolve the beam
+
+    This is what replaces `gaussian_rate` when the beam is not Gaussian: feed
+    it the measured profile and it returns the saturation curve with no
+    assumption about the shape. It reproduces `gaussian_rate` to 1e-5 when
+    given a Gaussian map (see tests).
+    """
+    phi = np.asarray(flux, dtype=float).ravel()
+    rg = np.atleast_1d(np.asarray(R_gamma, dtype=float))
+    out = np.empty_like(rg)
+    k = pde * pitch ** 2 * tau
+    for i, R in enumerate(rg):
+        out[i] = np.sum(-np.expm1(-k * R * phi)) * dA / (pitch ** 2 * tau)
+    return out if np.ndim(R_gamma) else float(out[0])
+
+
+def gaussian_flux_map(sigma_x, sigma_y, xlim, ylim, pixel):
+    """
+    Normalised Gaussian flux density sampled on a pixel grid covering the
+    device. Returns (flux, dA). Useful for testing `continuum_rate` against
+    the closed form, and as the template for a measured map.
+    """
+    nx, ny = int(round(xlim / pixel)), int(round(ylim / pixel))
+    x = (np.arange(nx) + 0.5) * pixel - 0.5 * xlim
+    y = (np.arange(ny) + 0.5) * pixel - 0.5 * ylim
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    phi = np.exp(-0.5 * (X / sigma_x) ** 2 - 0.5 * (Y / sigma_y) ** 2)
+    phi /= 2.0 * np.pi * sigma_x * sigma_y
+    return phi, pixel * pixel
