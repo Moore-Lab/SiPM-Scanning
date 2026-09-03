@@ -250,3 +250,58 @@ def fit_tau_profile(ms, flux, dA, free_pde=False, n_iter=4, x=None, y=None,
     chi2 = float(np.sum(resid ** 2))
     return FitResult(tau, perr[0] * TAU_0, pde_out, pde_err, chi2,
                      len(x) - n_par, resid, sigma_eff, free_pde, len(x))
+
+
+def fit_tau_shape(ms, map_builder, shape0, shape_bounds, free_pde=False,
+                  n_iter=3, x=None, y=None, pde=None):
+    """
+    Fit tau together with ONE profile shape parameter, for profiles whose
+    shape is not independently measured (e.g. the Airy scale before the beam
+    images are in hand).
+
+    map_builder(s) -> (flux, dA) must return the normalised flux map for shape
+    parameter s. Parameters are [tau/tau_0, s] or [tau/tau_0, s, pde].
+    Returns (FitResult, shape, shape_err).
+    """
+    x = ms.x if x is None else x
+    y = ms.y if y is None else y
+    pde_fixed = ms.pde if pde is None else pde
+    n_par = 3 if free_pde else 2
+    sigma_eff = ms.y_err.copy()
+
+    def model(xx, tau, s, p):
+        flux, dA = map_builder(s)
+        return sm.continuum_rate(xx, tau, p, ms.pitch, flux, dA)
+
+    popt = None
+    for _ in range(n_iter):
+        if free_pde:
+            def f(xx, a, s, p):
+                return model(xx, a * TAU_0, s, p)
+            p0 = list(popt) if popt is not None else [4.0, shape0, pde_fixed]
+            bounds = ([0.01, shape_bounds[0], 0.01], [200.0, shape_bounds[1], 0.99])
+        else:
+            def f(xx, a, s):
+                return model(xx, a * TAU_0, s, pde_fixed)
+            p0 = list(popt) if popt is not None else [4.0, shape0]
+            bounds = ([0.01, shape_bounds[0]], [200.0, shape_bounds[1]])
+
+        popt, pcov = curve_fit(f, x, y, p0=p0, sigma=sigma_eff,
+                               absolute_sigma=True, bounds=bounds, maxfev=40000)
+
+        tau_now, s_now = popt[0] * TAU_0, popt[1]
+        pde_now = popt[2] if free_pde else pde_fixed
+        h = 1.01
+        dydx = (model(x * h, tau_now, s_now, pde_now)
+                - model(x / h, tau_now, s_now, pde_now)) / (x * (h - 1.0 / h))
+        sigma_eff = np.sqrt(ms.y_err ** 2 + (dydx * ms.x_err) ** 2)
+
+    perr = np.sqrt(np.diag(pcov))
+    tau = popt[0] * TAU_0
+    pde_out = popt[2] if free_pde else pde_fixed
+    pde_err = perr[2] if free_pde else np.nan
+    resid = (y - f(x, *popt)) / sigma_eff
+    chi2 = float(np.sum(resid ** 2))
+    res = FitResult(tau, perr[0] * TAU_0, pde_out, pde_err, chi2,
+                    len(x) - n_par, resid, sigma_eff, free_pde, len(x))
+    return res, float(popt[1]), float(perr[1])

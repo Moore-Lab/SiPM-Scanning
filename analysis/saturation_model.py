@@ -302,3 +302,24 @@ def gaussian_flux_map(sigma_x, sigma_y, xlim, ylim, pixel):
     phi = np.exp(-0.5 * (X / sigma_x) ** 2 - 0.5 * (Y / sigma_y) ** 2)
     phi /= 2.0 * np.pi * sigma_x * sigma_y
     return phi, pixel * pixel
+
+
+def airy_flux_map(a, xlim, ylim, pixel):
+    """
+    Airy irradiance I(r) = I0 [2 J1(r/a)/(r/a)]^2 sampled on a pixel grid over
+    the device, normalised over the INFINITE plane (integral = 1), so that the
+    sum over on-device pixels is the fraction of photons that land on the
+    device. That is the right normalisation when the incident rate is defined
+    at the SiPM position, as it is here: photons in the Airy wings that miss
+    the active area are still counted in R_gamma. Returns (flux, dA).
+    """
+    from scipy.special import j1
+    nx, ny = int(round(xlim / pixel)), int(round(ylim / pixel))
+    x = (np.arange(nx) + 0.5) * pixel - 0.5 * xlim
+    y = (np.arange(ny) + 0.5) * pixel - 0.5 * ylim
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    u = np.hypot(X, Y) / a
+    phi = np.ones_like(u)
+    m = u > 1e-9
+    phi[m] = (2.0 * j1(u[m]) / u[m]) ** 2
+    return phi / (4.0 * np.pi * a ** 2), pixel * pixel
