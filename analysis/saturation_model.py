@@ -323,3 +323,43 @@ def airy_flux_map(a, xlim, ylim, pixel):
     m = u > 1e-9
     phi[m] = (2.0 * j1(u[m]) / u[m]) ** 2
     return phi / (4.0 * np.pi * a ** 2), pixel * pixel
+
+
+# ---------------------------------------------------------------------------
+# Pinhole-filtered beam: Gaussian focus truncated by a circular aperture
+# ---------------------------------------------------------------------------
+
+def pinhole_intensity(kappa, t, n_nodes=400):
+    """
+    Far-field intensity of a Gaussian focus clipped by a circular pinhole --
+    the beam a spatial filter delivers when the pinhole is not much larger
+    than the focused spot. In units of the Airy scale a (kappa = r/a) and the
+    truncation ratio t = R_pinhole / w_0:
+
+        A(kappa) = INT_0^1 exp(-t^2 u^2) J0(kappa u) u du,   I = |A|^2
+
+    normalised by Parseval so that INT I 2 pi kappa dkappa = 1. The limit
+    t -> 0 is the Airy pattern [2 J1(kappa)/kappa]^2 / (4 pi); t -> infinity
+    is a Gaussian. Fitting the razor-blade scans with this family returns
+    t -> 0: the pinhole is heavily overfilled and the beam is Airy.
+    """
+    from scipy.special import j0
+    ug, wg = np.polynomial.legendre.leggauss(n_nodes)
+    u, wu = 0.5 * (ug + 1.0), 0.5 * wg
+    kappa = np.atleast_1d(np.asarray(kappa, dtype=float))
+    amp = np.exp(-t * t * u * u) * u * wu
+    A = (j0(np.outer(kappa, u)) * amp[None, :]).sum(axis=1)
+    norm = (1.0 - np.exp(-2.0 * t * t)) / (4.0 * t * t) if t > 1e-6 else 0.5
+    return A * A / (2.0 * np.pi * norm)
+
+
+def pinhole_flux_map(a, t, xlim, ylim, pixel):
+    """Pinhole-filtered beam sampled on the device grid; see airy_flux_map."""
+    nx, ny = int(round(xlim / pixel)), int(round(ylim / pixel))
+    x = (np.arange(nx) + 0.5) * pixel - 0.5 * xlim
+    y = (np.arange(ny) + 0.5) * pixel - 0.5 * ylim
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    kgrid = np.linspace(0.0, 80.0, 6001)
+    Ik = pinhole_intensity(kgrid, t)
+    phi = np.interp(np.hypot(X, Y) / a, kgrid, Ik, right=0.0) / (a * a)
+    return phi, pixel * pixel
